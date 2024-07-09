@@ -22,6 +22,22 @@ async def check_session():
     return jsonify({"message": "会话有效", "valid": True}), 200
 
 
+@protect_bp.route('/logout', methods=['POST'])
+@jwt_required()
+async def logout():
+    current_user = get_jwt_identity()
+    
+    async with db_session() as session:
+        result = await session.execute(select(User).filter_by(username=current_user))
+        user = result.scalar_one_or_none()
+        
+        if user:
+            user.session_id = None
+            await session.commit()
+    
+    return jsonify({"message": "登录成功"}), 200
+
+
 @protect_bp.route('/protected', methods=['GET'])
 @jwt_required
 async def protected():
@@ -149,7 +165,9 @@ async def add_game_record():
             .limit(10)
         ).scalars().all()
 
+        # 检查新记录是否能进入前10
         if len(top_10) < 10 or completion_time < top_10[-1].completion_time:
+            # 删除该用户在此关卡和难度的旧排行榜记录（如果存在）
             session.execute(
                 select(Leaderboard)
                 .filter_by(user_id=user.id, level_id=level_id, difficulty=difficulty)

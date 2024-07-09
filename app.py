@@ -1,8 +1,7 @@
 from app import create_app
 from quart_sqlalchemy import SQLAlchemy
 from app.database import init_db
-from sqlalchemy import text
-from app.database import engine
+from app.Config import Config
 
 
 app = create_app()

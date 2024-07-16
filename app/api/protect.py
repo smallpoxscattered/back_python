@@ -1,5 +1,5 @@
 from quart import Blueprint, request, jsonify
-from quart_jwt_extended import jwt_required, get_jwt_identity, get_jwt
+from quart_jwt_extended import jwt_required, get_jwt_identity, get_jwt_claims
 from sqlalchemy import select
 from app.database import db_session
 from app.models.models import User, GameRecord, Leaderboard
@@ -9,10 +9,10 @@ protect_bp = Blueprint('protect', __name__)
 
 
 @protect_bp.route('/check_session', methods=['GET'])
-@jwt_required()
+@jwt_required
 async def check_session():
     current_user = get_jwt_identity()
-    claims = get_jwt()
+    claims = get_jwt_claims()
     token_session_id = claims.get('session_id')
     user = User.query.filter_by(username=current_user).first()
     if not user:
@@ -23,7 +23,7 @@ async def check_session():
 
 
 @protect_bp.route('/logout', methods=['POST'])
-@jwt_required()
+@jwt_required
 async def logout():
     current_user = get_jwt_identity()
     

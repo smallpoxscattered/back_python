@@ -77,15 +77,15 @@ def generate_numbers(image_path, n_log, resize=None):
             img = img.resize(resize, Image.NEAREST)
         original = np.array(img)
     if len(original.shape) == 3:
-        original = original[:, :, 0]  
+        Original = original[:, :, 0]  
 
-    h, w = original.shape
-    original = np.array(original, dtype=np.int32) + 1
+    h, w = Original.shape
+    Original = np.array(Original, dtype=np.int32) + 1
 
     expanded = np.full((h * 2 - 1, w * 2 - 1), -1)
     ans_expanded = np.full((h * 3 - 2, w * 3 - 2), -1)
 
-    expanded[::2, ::2] = original
+    expanded[::2, ::2] = Original
     expanded[1::2, 1::2] = 300
     point = [[0, 1], [1, 0], [2, 1], [1, 2], [0, 3], [3, 0], [2, 3], [3, 2]]
     for _ in range(2):
@@ -112,7 +112,7 @@ def generate_numbers(image_path, n_log, resize=None):
     result = np.zeros_like(expanded, dtype=int)
     expanded_result = np.zeros_like(expanded, dtype=int)
     start_num = -2
-    for label in np.unique(original):
+    for label in np.unique(Original):
         if label == -1:  
             continue
         result_temp, new_matrix, new_num = process_matrix(expanded, label, start_num)
@@ -122,14 +122,14 @@ def generate_numbers(image_path, n_log, resize=None):
     for i in range(3):
         for j in range(3):
             ans_expanded[i::3, j::3] = result[min(i, 1)::2, min(j, 1)::2]
-    return expanded_result[::2, ::2], result[::2, ::2], ans_expanded
+    return expanded_result[::2, ::2], result[::2, ::2], ans_expanded, original
 
 
 def gene_map(Serial_number, size=None):
     Serial_number += 6000000
     image_path = f"data/labels_colored/{Serial_number}.png"
     result = generate_numbers(image_path, 6, size)
-    return result[0].tolist(), result[1].tolist(), result[2].tolist()
+    return result[0].tolist(), result[1].tolist(), result[2].tolist(), result[3].tolist()
 
 
 if __name__ == '__main__':

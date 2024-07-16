@@ -45,7 +45,7 @@ async def login():
         user.session_id = session_id
         db_session.commit()
         
-        access_token = create_access_token(identity=username, additional_claims={'session_id': session_id})
+        access_token = create_access_token(identity=username)
         
         return jsonify(access_token=access_token), 200
     else:

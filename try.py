@@ -48,16 +48,18 @@ class ApiClient:
 
 # 使用示例
 if __name__ == "__main__":
-    client = ApiClient("https://your-api-url")
+    client = ApiClient("http://10.33.34.196:8852/api")
     
     # 登录
-    if client.login("your_username", "your_password"):
+    if client.login("string", "string"):
         print("登录成功")
-
+        data = {
+            'serial_number': 1
+        }
         # 发送一个认证请求
-        response = client.send_authenticated_request("some_authenticated_endpoint")
+        response = client.send_authenticated_request("getMap", 'POST', data=data)
         if response:
             print(f"请求成功: {response.status_code}")
-            print(f"响应内容: {response.text}")
+            print(f"响应内容: {response.text.keys()}")
     else:
         print("登录失败")

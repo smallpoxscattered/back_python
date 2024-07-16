@@ -21,6 +21,7 @@ async def getMap():
         "result_map": result[0],
         "path_map": result[1],
         "middle_wall": result[2],
+        "picture": result[3]
     }
 
     return jsonify(response)

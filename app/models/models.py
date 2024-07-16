@@ -4,6 +4,7 @@ from app.database import Base
 from datetime import datetime, timezone
 from werkzeug.security import generate_password_hash, check_password_hash
 
+
 class User(Base):
     __tablename__ = 'user'
     id = Column(Integer, primary_key=True)
@@ -20,7 +21,7 @@ class User(Base):
 
     def __repr__(self):
         return f'<User {self.username}>'
-    
+
 
 class GameRecord(Base):
     __tablename__ = 'game_record'

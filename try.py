@@ -1,5 +1,7 @@
 import requests
 import json
+import os
+from PIL import Image
 
 class ApiClient:
     def __init__(self, base_url):
@@ -46,6 +48,57 @@ class ApiClient:
 
         return response
 
+    def upload_image(self, image_path, size):
+        if not self.jwt:
+            print("未登录，请先调用 login 方法")
+            return None
+
+        url = f"{self.base_url}/upload"
+        headers = {
+            "Authorization": f"Bearer {self.jwt}"
+        }
+
+        # 输出所有需要的信息
+        print(f"图片路径 {image_path}")
+        print(f"图片大小 {size}")
+        print(f"图片路径 {self.base_url}")
+
+        # 准备文件和数据
+        files = {
+            'image': (os.path.basename(image_path), open(image_path, 'rb'), 'image/png')
+        }
+        data = {
+            'size': json.dumps(size)
+        }
+
+        try:
+            response = requests.post(url, headers=headers, files=files, data=data)
+            
+            if response.status_code == 200:
+                print("图片上传成功")
+                return response.json()
+            else:
+                print(f"图片上传失败: {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            print(f"请求发生错误: {str(e)}")
+            return None
+
+    def test_upload_image(self):
+        # 准备测试数据
+        image_path = r"data\labels_colored\0000051.png"
+        size = [15, 15]
+
+        # 发送图片上传请求
+        response = self.upload_image(image_path, size)
+        
+        if response:
+            print("响应内容:")
+            data = json.dumps(response, indent=2, ensure_ascii=False)
+            print(json.dumps(response, indent=2, ensure_ascii=False))
+        else:
+            print("图片上传失败")
+
     def test_add_game_record(self):
         # 准备测试数据
         test_data = {
@@ -78,6 +131,8 @@ if __name__ == "__main__":
     # 登录
     if client.login("string", "string"):
         print("登录成功")
+        client.test_upload_image()
+        # 如果需要测试添加游戏记录，取消下面的注释
         # client.test_add_game_record()
     else:
         print("登录失败")

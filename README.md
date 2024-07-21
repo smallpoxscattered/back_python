@@ -1,5 +1,88 @@
 # 开放api
 
+## 上传图片获得地图
+
+上传一张图片并进行处理，返回处理结果。
+
+### 请求
+
+- **URL**: `/api/upload`
+- **方法**: POST
+- **Content-Type**: multipart/form-data
+
+#### 参数
+
+| 名称 | 类型 | 描述 | 是否必需 |
+|------|------|------|----------|
+| image | File | 要上传的图片文件 | 是 |
+| size | String | JSON 格式的尺寸参数，例如 "[width, height]" | 是 |
+
+### 响应
+
+#### 成功响应
+
+- **状态码**: 200 OK
+- **Content-Type**: application/json
+
+##### 响应体
+
+```json
+{
+  "result_map": [...],
+  "path_map": [...],
+  "middle_wall": [...],
+  "picture": [...]
+}
+```
+
+| 字段 | 类型 | 描述 |
+|------|------|------|
+| result_map | Array | 处理后的结果图 |
+| path_map | Array | 路径图 |
+| middle_wall | Array | 中间墙体信息 |
+| picture | Array | 处理后的图片信息 |
+
+#### 错误响应
+
+- **状态码**: 400 Bad Request
+- **Content-Type**: application/json
+
+##### 响应体
+
+```json
+{
+  "error": "错误描述"
+}
+```
+
+可能的错误描述：
+
+- "No file part": 请求中没有文件部分
+- "No selected file": 没有选择文件
+- "Size parameter is missing": 缺少尺寸参数
+- "Invalid size parameter": 无效的尺寸参数格式
+
+### 示例
+
+#### 成功响应
+
+```json
+{
+  "result_map": [...],
+  "path_map": [...],
+  "middle_wall": [...],
+  "picture": [...]
+}
+```
+
+#### 错误响应
+
+```json
+{
+  "error": "Invalid size parameter"
+}
+```
+
 ## 获取地图
 
 ### 描述

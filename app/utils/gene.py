@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import ndimage
 import random
+import cv2
 from numba import jit
 from PIL import Image
 from .utils import process_matrix
@@ -71,14 +72,7 @@ def check_surrounding_values_equal_vectorized(matrix):
     return result
 
 
-def generate_numbers(image_path, n_log, resize=None):
-    with Image.open(image_path) as img:
-        if resize:
-            img = img.resize(resize, Image.NEAREST)
-        original = np.array(img)
-    if len(original.shape) == 3:
-        Original = original[:, :, 0]  
-
+def generate_numbers(Original, n_log): 
     h, w = Original.shape
     Original = np.array(Original, dtype=np.int32) + 1
 
@@ -122,14 +116,34 @@ def generate_numbers(image_path, n_log, resize=None):
     for i in range(3):
         for j in range(3):
             ans_expanded[i::3, j::3] = result[min(i, 1)::2, min(j, 1)::2]
-    return expanded_result[::2, ::2], result[::2, ::2], ans_expanded, original
+    return expanded_result[::2, ::2], result[::2, ::2], ans_expanded
 
 
 def gene_map(Serial_number, size=None):
     Serial_number += 6000000
     image_path = f"data/labels_colored/{Serial_number}.png"
-    result = generate_numbers(image_path, 6, size)
-    return result[0].tolist(), result[1].tolist(), result[2].tolist(), result[3].tolist()
+    with Image.open(image_path) as img:
+        if size:
+            img = img.resize(size, Image.NEAREST)
+        original = np.array(img)
+    if len(original.shape) == 3:
+        Original = original[:, :, 0]
+    else:
+        Original = original
+    result = generate_numbers(Original, 6)
+    return result[0].tolist(), result[1].tolist(), result[2].tolist(), original.tolist()
+
+
+def auto_map(original, size=(15, 15)):
+
+    original = cv2.resize(original, size, interpolation=cv2.INTER_AREA)
+
+    if len(original.shape) == 3:
+        Original = original[:, :, 0]
+    else:
+        Original = original
+    result = generate_numbers(Original, 6)
+    return result[0].tolist(), result[1].tolist(), result[2].tolist(), original.tolist()
 
 
 if __name__ == '__main__':

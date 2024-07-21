@@ -46,7 +46,6 @@ async def login():
         db_session.commit()
         
         access_token = create_access_token(identity=username)
-        print(access_token)
         return jsonify(access_token=access_token), 200
     else:
         return jsonify({"message": "Invalid username or password"}), 401

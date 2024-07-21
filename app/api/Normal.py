@@ -17,7 +17,8 @@ Normal_bp = Blueprint("getMap", __name__)
 async def getMap():
     data = await request.get_json()
     serial_number = data.get("serial_number")
-    size = tuple(data.get("size", [20, 20]))  # 默认大小为(20, 20)
+    size = int(data.get("size", "20"))
+    size = (size, size)
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, gene_map, serial_number, size)
 

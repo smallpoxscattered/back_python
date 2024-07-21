@@ -34,7 +34,7 @@ async def get_leaderboard():
     difficulty = data.get("difficulty")
 
     if not level_id:
-        return jsonify({"错误": "缺少关卡ID"}), 400
+        return jsonify({"error": "Missing level ID"}), 400
 
     with db_session() as session:
         query = (
@@ -54,10 +54,10 @@ async def get_leaderboard():
             return (
                 jsonify(
                     {
-                        "关卡": level_id,
-                        "难度": difficulty,
-                        "消息": f"关卡 {level_id} {'和难度 ' + str(difficulty) if difficulty is not None else ''} 暂无排行榜数据",
-                        "排行榜": [],
+                        "level": level_id,
+                        "difficulty": difficulty,
+                        "message": f"No leaderboard data for level {level_id}{' and difficulty ' + str(difficulty) if difficulty is not None else ''}",
+                        "leaderboard": [],
                     }
                 ),
                 200,
@@ -65,16 +65,16 @@ async def get_leaderboard():
 
         leaderboard_data = [
             {
-                "排名": entry.Leaderboard.rank,
-                "用户名": entry.username,
-                "完成时间": entry.Leaderboard.completion_time,
-                "难度": entry.Leaderboard.difficulty,
-                "时间戳": entry.Leaderboard.timestamp.isoformat(),
+                "rank": entry.Leaderboard.rank,
+                "username": entry.username,
+                "completion_time": entry.Leaderboard.completion_time,
+                "difficulty": entry.Leaderboard.difficulty,
+                "timestamp": entry.Leaderboard.timestamp.isoformat(),
             }
             for entry in leaderboard_entries
         ]
 
         return (
-            jsonify({"关卡": level_id, "难度": difficulty, "排行榜": leaderboard_data}),
+            jsonify({"level": level_id, "difficulty": difficulty, "leaderboard": leaderboard_data}),
             200,
         )

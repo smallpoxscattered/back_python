@@ -3,6 +3,7 @@ from quart_jwt_extended import jwt_required, get_jwt_identity, get_jwt_claims
 from sqlalchemy import select
 from app.database import db_session
 from app.models.models import User, GameRecord, Leaderboard
+from sqlalchemy import delete
 from datetime import datetime, timezone
 
 protect_bp = Blueprint('protect', __name__)
@@ -46,7 +47,7 @@ async def protected():
     with db_session() as session:
         user = session.execute(select(User).filter_by(username=current_user)).scalar_one_or_none()
         if not user:
-            return jsonify({"错误": "用户不存在"}), 404
+            return jsonify({"error": "User does not exist"}), 404
         
         game_records = session.execute(
             select(GameRecord).filter_by(user_id=user.id).order_by(GameRecord.timestamp.desc())
@@ -54,24 +55,24 @@ async def protected():
         
         if not game_records:
             return jsonify({
-                "用户名": current_user,
-                "游戏记录": [],
-                "消息": "该用户还没有游戏记录"
+                "username": current_user,
+                "game_records": [],
+                "message": "This user has no game records yet"
             }), 200
         
-        # 构建响应数据
+        # Build response data
         records = []
         for record in game_records:
             records.append({
-                "关卡": record.level_id,
-                "完成时间": record.completion_time,
-                "得分": record.score,
-                "时间戳": record.timestamp.isoformat()
+                "level": record.level_id,
+                "completion_time": record.completion_time,
+                "score": record.score,
+                "timestamp": record.timestamp.isoformat()
             })
         
         return jsonify({
-            "用户名": current_user,
-            "游戏记录": records
+            "username": current_user,
+            "game_records": records
         }), 200
 
 
@@ -83,42 +84,42 @@ async def get_level_record():
     level_id = data.get('level_id')
     
     if not level_id:
-        return jsonify({"错误": "缺少关卡ID"}), 400
+        return jsonify({"error": "Missing level ID"}), 400
     
     with db_session() as session:
-        # 获取用户
+        # Get user
         user = session.execute(select(User).filter_by(username=current_user)).scalar_one_or_none()
         
         if not user:
-            return jsonify({"错误": "用户不存在"}), 404
+            return jsonify({"error": "User does not exist"}), 404
         
-        # 获取指定关卡的游戏记录
+        # Get game records for the specified level
         game_records = session.execute(
             select(GameRecord).filter_by(user_id=user.id, level_id=level_id).order_by(GameRecord.timestamp.desc())
         ).scalars().all()
         
-        # 处理没有游戏记录的情况
+        # Handle case with no game records
         if not game_records:
             return jsonify({
-                "用户名": current_user,
-                "关卡": level_id,
-                "游戏记录": [],
-                "消息": f"该用户在关卡 {level_id} 还没有游戏记录"
+                "username": current_user,
+                "level": level_id,
+                "game_records": [],
+                "message": f"This user has no game records for level {level_id} yet"
             }), 200
         
-        # 构建响应数据
+        # Build response data
         records = []
         for record in game_records:
             records.append({
-                "完成时间": record.completion_time,
-                "得分": record.score,
-                "时间戳": record.timestamp.isoformat()
+                "completion_time": record.completion_time,
+                "score": record.score,
+                "timestamp": record.timestamp.isoformat()
             })
         
         return jsonify({
-            "用户名": current_user,
-            "关卡": level_id,
-            "游戏记录": records
+            "username": current_user,
+            "level": level_id,
+            "game_records": records
         }), 200
         
         
@@ -168,11 +169,12 @@ async def add_game_record():
         # 检查新记录是否能进入前10
         if len(top_10) < 10 or completion_time < top_10[-1].completion_time:
             # 删除该用户在此关卡和难度的旧排行榜记录（如果存在）
-            session.execute(
-                select(Leaderboard)
-                .filter_by(user_id=user.id, level_id=level_id, difficulty=difficulty)
-                .delete()
+            delete_stmt = delete(Leaderboard).where(
+                (Leaderboard.user_id == user.id) &
+                (Leaderboard.level_id == level_id) &
+                (Leaderboard.difficulty == difficulty)
             )
+            session.execute(delete_stmt)
 
             # 添加新的排行榜记录
             new_leaderboard_entry = Leaderboard(
@@ -199,14 +201,14 @@ async def add_game_record():
         session.commit()
 
         return jsonify({
-            "消息": "游戏记录添加成功，排行榜已更新",
-            "记录": {
-                "用户名": current_user,
-                "关卡": level_id,
-                "完成时间": completion_time,
-                "得分": score,
-                "难度": difficulty,
-                "时间戳": new_record.timestamp.isoformat()
+            "message": "游戏记录添加成功，排行榜已更新",
+            "record": {
+                "username": current_user,
+                "level": level_id,
+                "completion_time": completion_time,
+                "score": score,
+                "difficulty": difficulty,
+                "timestamp": new_record.timestamp.isoformat()
             }
         }), 201
 

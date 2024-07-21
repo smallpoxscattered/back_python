@@ -46,20 +46,38 @@ class ApiClient:
 
         return response
 
+    def test_add_game_record(self):
+        # 准备测试数据
+        test_data = {
+            "level_id": "1",
+            "completion_time": 120.5,
+            "score": 1000,
+            "difficulty": 2
+        }
+
+        # 发送添加游戏记录的请求
+        response = self.send_authenticated_request("add_record", method="POST", data=test_data)
+        
+        if response:
+            print(f"状态码: {response.status_code}")
+            print("响应内容:")
+            print(json.dumps(response.json(), indent=2, ensure_ascii=False))
+
+            # 检查响应是否符合预期
+            if response.status_code == 201:
+                print("测试成功：游戏记录添加成功")
+            else:
+                print(f"测试失败：预期状态码201，实际获得{response.status_code}")
+        else:
+            print("请求失败，未收到响应")
+
 # 使用示例
 if __name__ == "__main__":
-    client = ApiClient("http://10.33.34.196:8852/api")
+    client = ApiClient("http://0.0.0.0:8852/api")
     
     # 登录
     if client.login("string", "string"):
         print("登录成功")
-        data = {
-            'serial_number': 1
-        }
-        # 发送一个认证请求
-        response = client.send_authenticated_request("getMap", 'POST', data=data)
-        if response:
-            print(f"请求成功: {response.status_code}")
-            print(f"响应内容: {response.text.keys()}")
+        # client.test_add_game_record()
     else:
         print("登录失败")

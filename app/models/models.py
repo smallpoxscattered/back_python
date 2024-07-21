@@ -31,12 +31,13 @@ class GameRecord(Base):
     level_id = Column(Integer, nullable=False)
     completion_time = Column(Float, nullable=False)  
     score = Column(Integer, nullable=False)
+    difficulty = Column(Integer, nullable=False)
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship('User', backref=backref('game_records', lazy='dynamic'))
 
     def __repr__(self):
-        return f'<GameRecord {self.id} User {self.user_id} Level {self.level_id}>'
+        return f'<GameRecord {self.id} User {self.user_id} Level {self.level_id} Difficulty {self.difficulty}>'
 
 
 class Leaderboard(Base):

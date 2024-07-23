@@ -191,7 +191,6 @@ async def add_game_record():
                 select(Leaderboard)
                 .filter_by(level_id=level_id, difficulty=difficulty)
                 .order_by(Leaderboard.completion_time)
-                .limit(10)
             ).scalars().all()
             for rank, entry in enumerate(leaderboard_entries, start=1):
                 entry.rank = rank

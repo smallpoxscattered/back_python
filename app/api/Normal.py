@@ -78,7 +78,7 @@ async def get_leaderboard():
             }
             for entry in leaderboard_entries
         ]
-        print(leaderboard_data)
+
         return (
             jsonify({"level": level_id, "difficulty": difficulty, "leaderboard": leaderboard_data}),
             200,

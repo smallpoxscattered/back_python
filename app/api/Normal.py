@@ -51,7 +51,7 @@ async def get_leaderboard():
         if difficulty is not None:
             query = query.filter(Leaderboard.difficulty == difficulty)
 
-        query = query.order_by(Leaderboard.rank)
+        query = query.order_by(Leaderboard.completion_time)
 
         leaderboard_entries = session.execute(query).all()
 
@@ -78,7 +78,7 @@ async def get_leaderboard():
             }
             for entry in leaderboard_entries
         ]
-
+        print(leaderboard_data)
         return (
             jsonify({"level": level_id, "difficulty": difficulty, "leaderboard": leaderboard_data}),
             200,

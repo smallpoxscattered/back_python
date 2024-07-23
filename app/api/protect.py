@@ -165,7 +165,6 @@ async def add_game_record():
             .order_by(Leaderboard.completion_time)
             .limit(10)
         ).scalars().all()
-
         # 检查新记录是否能进入前10
         if len(top_10) < 10 or completion_time < top_10[-1].completion_time:
             # 删除该用户在此关卡和难度的旧排行榜记录（如果存在）
@@ -182,17 +181,18 @@ async def add_game_record():
                 level_id=level_id,
                 completion_time=completion_time,
                 difficulty=difficulty,
-                rank=0  # 临时排名，稍后更新
+                timestamp=datetime.now(timezone.utc),
+                rank=0
             )
             session.add(new_leaderboard_entry)
+            session.commit()
 
-            # 重新计算并更新排名
             leaderboard_entries = session.execute(
                 select(Leaderboard)
                 .filter_by(level_id=level_id, difficulty=difficulty)
                 .order_by(Leaderboard.completion_time)
+                .limit(10)
             ).scalars().all()
-
             for rank, entry in enumerate(leaderboard_entries, start=1):
                 entry.rank = rank
                 if rank > 10:

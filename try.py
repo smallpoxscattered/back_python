@@ -103,8 +103,8 @@ class ApiClient:
         # 准备测试数据
         test_data = {
             "level_id": "1",
-            "completion_time": 120.5,
-            "score": 1000,
+            "completion_time": 1.5,
+            "score": 10,
             "difficulty": 2
         }
 
@@ -131,8 +131,12 @@ if __name__ == "__main__":
     # 登录
     if client.login("string", "string"):
         print("登录成功")
-        client.test_upload_image()
-        # 如果需要测试添加游戏记录，取消下面的注释
-        # client.test_add_game_record()
+        # client.test_upload_image()
+        client.test_add_game_record()
+        data = {
+            'level_id': '1',
+        }
+        response = client.send_authenticated_request('leaderboard', 'POST', data)
+        print(response.json())
     else:
         print("登录失败")

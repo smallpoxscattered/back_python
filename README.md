@@ -115,9 +115,8 @@
 
 | 字段名      | 类型  | 描述           |
 | ----------- | ----- | -------------- |
-| result_map  | array | 生成的结果地图 |
-| path_map    | array | 生成的路径地图 |
-| middle_wall | array | 中间墙壁信息   |
+| result_map  | array | 答案 |
+| problem_map    | array | 问题 |
 
 #### 响应示例
 

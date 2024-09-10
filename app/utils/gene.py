@@ -1,176 +1,129 @@
 import numpy as np
-from scipy import ndimage
 import random
-import cv2
-from numba import jit
-from PIL import Image
-from .utils import process_matrix
-from scipy.signal import convolve2d
 
 
-def expanded_to_original(y, x):
-    if y % 2 == 0 and x % 2 == 0:
-        return y // 2, x // 2
-    else:
-        return None
+def generate_adaptive_number_wall(rows, cols):
+    grid = np.ones((rows, cols), dtype=int)  # 1 表示岛屿，0 表示墙
+
+    def is_valid_coord(x, y):
+        return 0 <= x < rows and 0 <= y < cols
+
+    def get_neighbors(x, y):
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        return [
+            (x + dx, y + dy) for dx, dy in directions if is_valid_coord(x + dx, y + dy)
+        ]
+
+    def is_invalid_island(x, y):
+        neighbors = get_neighbors(x, y)
+        wall_count = sum(1 for nx, ny in neighbors if grid[nx, ny] == 0)
+        is_on_edge = x == 0 or x == rows - 1 or y == 0 or y == cols - 1
+        if is_on_edge:
+            return random.random() < 0.7
+        else:
+            return wall_count != 2
+
+    def is_valid_wall(x, y):
+        neighbors = get_neighbors(x, y)
+        wall_count = sum(1 for nx, ny in neighbors if grid[nx, ny] == 0)
+        return wall_count <= 1
+
+    def should_convert_to_wall(x, y):
+        if grid[x, y] == 0:
+            return False
+        return is_invalid_island(x, y) and is_valid_wall(x, y)
+
+    def plan_route(x, y):
+        if not is_valid_coord(x, y) or grid[x, y] == 0:
+            return
+
+        if should_convert_to_wall(x, y):
+            grid[x, y] = 0  # 将岛屿变成墙
+
+            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+            random.shuffle(directions)
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                plan_route(nx, ny)
+
+    def has_2x2_island(x, y):
+        if not is_valid_coord(x + 1, y + 1):
+            return False
+        return (
+            grid[x, y] == 1
+            and grid[x + 1, y] == 1
+            and grid[x, y + 1] == 1
+            and grid[x + 1, y + 1] == 1
+        )
+
+    def final_cleanup():
+        for i in range(rows):
+            for j in range(cols):
+                if grid[i, j] == 1:
+                    if has_2x2_island(i, j):
+                        grid[i, j] = 0  # 将岛屿变成墙
+
+    # 随机选择一个边界点作为起点
+    edge_points = (
+        [(0, j) for j in range(cols)]
+        + [(rows - 1, j) for j in range(cols)]
+        + [(i, 0) for i in range(1, rows - 1)]
+        + [(i, cols - 1) for i in range(1, rows - 1)]
+    )
+    start_point = random.choice(edge_points)
+    grid[start_point] = 0  # 将起点设为墙
+
+    x, y = start_point
+    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    random.shuffle(directions)
+    for dx, dy in directions:
+        nx, ny = x + dx, y + dy
+        plan_route(nx, ny)
+
+    # 最后的清理步骤
+    final_cleanup()
+    return grid
 
 
-def get_surrounding_value_vectorized(matrix):
-    padded = np.pad(matrix, ((1, 1), (1, 1)), constant_values=300)
-    neighbors = np.stack([
-        padded[:-2, 1:-1],  # up
-        padded[2:, 1:-1],   # down
-        padded[1:-1, :-2],  # left
-        padded[1:-1, 2:],   # right
-    ])
-
-    mask = (neighbors != 300) & (neighbors != -1)
-
-    first_valid = np.where(mask, neighbors, np.inf)
-    first_valid = np.min(first_valid, axis=0)
-    return first_valid
-
-
-def check_surrounding_points_vectorized(matrix):
-    padded = np.pad(matrix, ((1, 1), (1, 1)), constant_values=-1)
-
-    up = padded[:-2, 1:-1]
-    down = padded[2:, 1:-1]
-    left = padded[1:-1, :-2]
-    right = padded[1:-1, 2:]
-
-    valid_points = (matrix != -1) & (matrix != 300)
-    kernel = np.ones((3, 3))
-    kernel[1, 1] = 0
-    wall_count = np.sum(((up == -1), (down == -1), (left == -1), (right == -1)), axis=0)
-    high_wall_count = (wall_count >= 3)
-    matrix_mask = (matrix == -1)
-    conv_result = (convolve2d(valid_points * high_wall_count, kernel, mode='same', boundary='fill', fillvalue=0) * matrix_mask) == 2
-    return conv_result
-
-
-def check_surrounding_values_equal_vectorized(matrix):
-    padded = np.pad(matrix, ((1, 1), (1, 1)), constant_values=300)
-
-    neighbors = np.stack([
-        padded[:-2, 1:-1],  # up
-        padded[2:, 1:-1],   # down
-        padded[1:-1, :-2],  # left
-        padded[1:-1, 2:],   # right
-    ])
-
-    mask = (neighbors != 300) & (neighbors != -1)
-
-    valid_neighbors = mask.sum(axis=0)
-
-    first_valid = np.where(mask, neighbors, np.inf)
-    first_valid = np.min(first_valid, axis=0)
-    
-    equal_neighbors = ((neighbors == first_valid) & mask).sum(axis=0)
-
-    result = (equal_neighbors == valid_neighbors) & (valid_neighbors > 0) & (matrix == -1)
-    return result
-
-
-def generate_numbers(Original, n_log): 
-    h, w = Original.shape
-    Original = np.array(Original, dtype=np.int32) + 1
-
-    expanded = np.full((h * 2 - 1, w * 2 - 1), -1)
-    ans_expanded = np.full((h * 3 - 2, w * 3 - 2), -1)
-
-    expanded[::2, ::2] = Original
-    expanded[1::2, 1::2] = 300
-    point = [[0, 1], [1, 0], [2, 1], [1, 2], [0, 3], [3, 0], [2, 3], [3, 2]]
-    for _ in range(2):
-        for i, j in point:
-            temp_point = np.full_like(expanded, False, dtype=bool)
-            temp_point[i::4, j::4] = True
-            mask = check_surrounding_points_vectorized(
-                expanded
-            ) & check_surrounding_values_equal_vectorized(expanded)
-            wall_coords = np.column_stack(np.where(mask * temp_point))
-            if wall_coords.shape[0] < 2:
-                continue
+def gene_map(size=(20, 20)):
+    def visualize_connected_ones(matrix):
+        
+        m, n = len(matrix), len(matrix[0])
+        visited = [[False for _ in range(n)] for _ in range(m)]
+        result = [[0 for _ in range(n)] for _ in range(m)]
+        
+        def dfs(i, j):
+            if i < 0 or i >= m or j < 0 or j >= n or matrix[i][j] == 0 or visited[i][j]:
+                return 0
             
-            np.random.shuffle(wall_coords)
-            wall_coords = wall_coords[::2]
-            values = get_surrounding_value_vectorized(expanded)
+            visited[i][j] = True
+            count = 1
             
-            for _ in range(random.randint(n_log - 3, n_log + 3)):
-                if wall_coords.shape[0] < 2:
-                    break
-                wall_coords_temp = wall_coords[::2]
-                expanded[wall_coords_temp[:, 0], wall_coords_temp[:, 1]] = values[wall_coords_temp[:, 0], wall_coords_temp[:, 1]]
-                wall_coords = wall_coords[1::2]
-    result = np.zeros_like(expanded, dtype=int)
-    expanded_result = np.zeros_like(expanded, dtype=int)
-    start_num = -2
-    for label in np.unique(Original):
-        if label == -1:  
-            continue
-        result_temp, new_matrix, new_num = process_matrix(expanded, label, start_num)
-        result[new_matrix < -1] = new_matrix[new_matrix < -1]
-        start_num = new_num - 1
-        expanded_result[result_temp > 0] = (result_temp[result_temp > 0] + 1) // 2
-    for i in range(3):
-        for j in range(3):
-            ans_expanded[i::3, j::3] = result[min(i, 1)::2, min(j, 1)::2]
-    return expanded_result[::2, ::2], result[::2, ::2], ans_expanded
+            # 检查4个方向：上、下、左、右
+            directions = [(-1,0), (1,0), (0,-1), (0,1)]
+            for di, dj in directions:
+                count += dfs(i + di, j + dj)
+            
+            return count
+        
+        for i in range(m):
+            for j in range(n):
+                if matrix[i][j] == 1 and not visited[i][j]:
+                    size = dfs(i, j)
+                    # 填充连通域的大小
+                    for x in range(m):
+                        for y in range(n):
+                            if visited[x][y] and result[x][y] == 0:
+                                result[x][y] = size
+        
+        return result
+    grid = generate_adaptive_number_wall(*size)
+    return grid, visualize_connected_ones(grid)
 
 
-def gene_map(Serial_number, size=None):
-    Serial_number += 6000000
-    image_path = f"data/labels_colored/{Serial_number}.png"
-    with Image.open(image_path) as img:
-        if size:
-            img = img.resize(size, Image.NEAREST)
-        original = np.array(img)
-    if len(original.shape) == 3:
-        Original = original[:, :, 0]
-    else:
-        Original = original
-    result = generate_numbers(Original, 6)
-    return result[0].tolist(), result[1].tolist(), result[2].tolist(), original.tolist()
-
-
-def auto_map(original, size=(15, 15)):
-
-    original = cv2.resize(original, size, interpolation=cv2.INTER_AREA)
-
-    if len(original.shape) == 3:
-        Original = original[:, :, 0]
-    else:
-        Original = original
-    result = generate_numbers(Original, 6)
-    return result[0].tolist(), result[1].tolist(), result[2].tolist(), original.tolist()
-
-
-if __name__ == '__main__':
-    result = gene_map(1, (32, 32))
+if __name__ == "__main__":
+    result = gene_map((32, 32))
     print("生成结果图：")
     print(result[0])
     print("生成的路径图：")
     print(result[1])
-    print("中间墙")
-    print(result[2])
-    
-    # maze = np.array([
-    #     [255, 255, 255, 0, 255],
-    #     [255,   0, 255, 0,   0],
-    #     [255, 255, 255, 0,   0],
-    #     [  0, 0,   0,  255, 255],
-    #     [255, 255, 255,  0, 255]
-    # ])
-    # result = generate_numbers('data/maze.png', 6)
-
-    # # 打印结果
-    # print("原矩阵：")
-    # print(maze)
-    # print("生成结果图：")
-    # print(result[0])
-    # print("生成的路径图：")
-    # print(result[1])
-    # print("中间墙")
-    # print(result[2])
-

@@ -1,5 +1,6 @@
 import numpy as np
 import random
+from collections import deque
 
 
 def generate_adaptive_number_wall(rows, cols):
@@ -47,21 +48,45 @@ def generate_adaptive_number_wall(rows, cols):
                 plan_route(nx, ny)
 
     def has_2x2_island(x, y):
-        if not is_valid_coord(x + 1, y + 1):
-            return False
-        return (
-            grid[x, y] == 1
-            and grid[x + 1, y] == 1
-            and grid[x, y + 1] == 1
-            and grid[x + 1, y + 1] == 1
-        )
+        # 检查以 (x,y) 为左上角的 2x2 区域
+        if is_valid_coord(x+1, y+1):
+            if grid[x, y] == 1 and grid[x+1, y] == 1 and grid[x, y+1] == 1 and grid[x+1, y+1] == 1:
+                return True
+        
+        # 检查以 (x,y) 为右上角的 2x2 区域
+        if is_valid_coord(x+1, y-1):
+            if grid[x, y] == 1 and grid[x+1, y] == 1 and grid[x, y-1] == 1 and grid[x+1, y-1] == 1:
+                return True
+        
+        # 检查以 (x,y) 为左下角的 2x2 区域
+        if is_valid_coord(x-1, y+1):
+            if grid[x, y] == 1 and grid[x-1, y] == 1 and grid[x, y+1] == 1 and grid[x-1, y+1] == 1:
+                return True
+        
+        # 检查以 (x,y) 为右下角的 2x2 区域
+        if is_valid_coord(x-1, y-1):
+            if grid[x, y] == 1 and grid[x-1, y] == 1 and grid[x, y-1] == 1 and grid[x-1, y-1] == 1:
+                return True
+        
+        return False
+    
+    def has_adjacent_wall(x, y):
+        neighbors = get_neighbors(x, y)
+        return any(grid[nx, ny] == 0 for nx, ny in neighbors)
 
     def final_cleanup():
+        to_check = deque()
         for i in range(rows):
             for j in range(cols):
-                if grid[i, j] == 1:
-                    if has_2x2_island(i, j):
-                        grid[i, j] = 0  # 将岛屿变成墙
+                if grid[i, j] == 1 and has_2x2_island(i, j):
+                    to_check.append((i, j))
+
+        while to_check:
+            x, y = to_check.popleft()
+            if grid[x, y] == 1 and has_2x2_island(x, y) and has_adjacent_wall(x, y):
+                grid[x, y] = 0  # 将岛屿变成墙
+            elif grid[x, y] == 1 and has_2x2_island(x, y):
+                to_check.append((x, y))  # 重新加入队列，等待后续检查
 
     # 随机选择一个边界点作为起点
     edge_points = (

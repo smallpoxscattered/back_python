@@ -13,6 +13,17 @@ from app.models.models import User, Leaderboard
 Normal_bp = Blueprint("getMap", __name__)
 
 
+def numpy_to_python(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    else:
+        return obj
+
+
 @Normal_bp.route("/getMap", methods=["POST"])
 async def getMap():
     data = await request.get_json()
@@ -22,10 +33,9 @@ async def getMap():
     result = await loop.run_in_executor(None, gene_map, size)
 
     response = {
-        "result_map": result[0],
-        "problem_map": result[1],
+        "result_map": numpy_to_python(result[0]),
+        "problem_map": numpy_to_python(result[1]),
     }
-
     return jsonify(response)
 
 

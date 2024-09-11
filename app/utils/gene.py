@@ -142,8 +142,31 @@ def gene_map(size=(20, 20)):
                                 result[x][y] = size
         
         return result
+    def process_matrix(matrix):
+        rows, cols = len(matrix), len(matrix[0])
+        visited = [[False for _ in range(cols)] for _ in range(rows)]
+
+        def dfs(i, j, num):
+            if (i < 0 or i >= rows or j < 0 or j >= cols or
+                visited[i][j] or matrix[i][j] != num):
+                return
+            
+            visited[i][j] = True
+            if (i, j) != start:
+                matrix[i][j] = 0
+            
+            for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                dfs(i + di, j + dj, num)
+
+        for i in range(rows):
+            for j in range(cols):
+                if not visited[i][j] and matrix[i][j] != 0:
+                    start = (i, j)
+                    dfs(i, j, matrix[i][j])
+        
+        return matrix
     grid = generate_adaptive_number_wall(*size)
-    return grid, visualize_connected_ones(grid)
+    return grid, process_matrix(visualize_connected_ones(grid))
 
 
 if __name__ == "__main__":

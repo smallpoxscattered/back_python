@@ -1,0 +1,734 @@
+
+
+--- Config.py ---
+
+import secrets
+
+
+class Config:
+    JWT_SECRET_KEY = "08d7c98a5c0e01fd1f138cb58a5f4bc1203cd9fb7267ffbad2dd62d8c9d88512" # secrets.token_hex(32)
+    DATABASE_URI = "mysql+pymysql://root:123456@127.0.0.1:3306/LSZ"
+
+
+
+--- database.py ---
+
+from sqlalchemy import create_engine
+from .Config import Config
+from sqlalchemy.orm import scoped_session, sessionmaker, declarative_base
+
+
+engine = create_engine(Config.DATABASE_URI)
+db_session = scoped_session(
+    sessionmaker(autocommit=False, autoflush=False, bind=engine)
+)
+Base = declarative_base()
+Base.query = db_session.query_property()
+
+
+def init_db():
+    import app.models
+
+    Base.metadata.create_all(bind=engine)
+
+
+
+--- main.py ---
+
+from quart import Quart
+from quart_jwt_extended import JWTManager
+from .Config import Config
+from app.api.Normal import Normal_bp
+from app.api.login import auth_bp
+from app.api.protect import protect_bp
+
+
+def create_app():
+    app = Quart(__name__)
+    app.config["JWT_SECRET_KEY"] = Config.JWT_SECRET_KEY  # 在生产环境中应使用复杂的密钥
+
+    jwt = JWTManager(app)
+    app.register_blueprint(Normal_bp, url_prefix='/api')
+    app.register_blueprint(auth_bp, url_prefix='/api')
+    app.register_blueprint(protect_bp, url_prefix='/api')
+    return app
+    
+
+
+
+--- __init__.py ---
+
+from .main import create_app
+
+--- api\login.py ---
+
+from quart import Blueprint, request, jsonify
+from app.models.models import User
+from app.database import db_session
+import uuid
+from quart_jwt_extended import create_access_token
+
+auth_bp = Blueprint('auth', __name__)
+
+@auth_bp.route('/register', methods=['POST'])
+async def register():
+    data = await request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({"message": "Username and password are required"}), 400
+    
+    existing_user = User.query.filter_by(username=username).first()
+    if existing_user:
+        return jsonify({"message": "Username already exists"}), 400
+    
+    new_user = User(username=username)
+    new_user.set_password(password)
+    db_session.add(new_user)
+    db_session.commit()
+    
+    return jsonify({"message": "User registered successfully"}), 201
+
+
+@auth_bp.route('/login', methods=['POST'])
+async def login():
+    data = await request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({"message": "Username and password are required"}), 400
+    
+    user = User.query.filter_by(username=username).first()
+    
+    if user and user.check_password(password):
+        session_id = str(uuid.uuid4())
+        
+        # 更新用户的session_id
+        user.session_id = session_id
+        db_session.commit()
+        
+        access_token = create_access_token(identity=username)
+        return jsonify(access_token=access_token), 200
+    else:
+        return jsonify({"message": "Invalid username or password"}), 401
+
+
+
+
+
+--- api\Normal.py ---
+
+import ast
+from quart import Blueprint, request, jsonify
+from ..utils.gene import gene_map
+from PIL import Image
+import numpy as np
+import io
+import asyncio
+from sqlalchemy import select
+from app.database import db_session
+from app.models.models import User, Leaderboard
+
+
+Normal_bp = Blueprint("getMap", __name__)
+
+
+def numpy_to_python(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    else:
+        return obj
+
+
+@Normal_bp.route("/getMap", methods=["POST"])
+async def getMap():
+    data = await request.get_json()
+    size = int(data.get("size", "20"))
+    size = (size, size)
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, gene_map, size)
+
+    response = {
+        "result_map": numpy_to_python(result[0]),
+        "problem_map": numpy_to_python(result[1]),
+    }
+    return jsonify(response)
+
+
+@Normal_bp.route("/leaderboard", methods=["POST"])
+async def get_leaderboard():
+    data = await request.json
+    level_id = data.get("level_id")
+    difficulty = data.get("difficulty")
+
+    if not level_id:
+        return jsonify({"error": "Missing level ID"}), 400
+
+    with db_session() as session:
+        query = (
+            select(Leaderboard, User.username)
+            .join(User, User.id == Leaderboard.user_id)
+            .filter(Leaderboard.level_id == level_id)
+        )
+
+        if difficulty is not None:
+            query = query.filter(Leaderboard.difficulty == difficulty)
+
+        query = query.order_by(Leaderboard.completion_time)
+
+        leaderboard_entries = session.execute(query).all()
+
+        if not leaderboard_entries:
+            return (
+                jsonify(
+                    {
+                        "level": level_id,
+                        "difficulty": difficulty,
+                        "message": f"No leaderboard data for level {level_id}{' and difficulty ' + str(difficulty) if difficulty is not None else ''}",
+                        "leaderboard": [],
+                    }
+                ),
+                200,
+            )
+
+        leaderboard_data = [
+            {
+                "rank": entry.Leaderboard.rank,
+                "username": entry.username,
+                "completion_time": entry.Leaderboard.completion_time,
+                "difficulty": entry.Leaderboard.difficulty,
+                "timestamp": entry.Leaderboard.timestamp.isoformat(),
+            }
+            for entry in leaderboard_entries
+        ]
+
+        return (
+            jsonify({"level": level_id, "difficulty": difficulty, "leaderboard": leaderboard_data}),
+            200,
+        )
+
+
+
+--- api\protect.py ---
+
+from quart import Blueprint, request, jsonify
+from quart_jwt_extended import jwt_required, get_jwt_identity, get_jwt_claims
+from sqlalchemy import select
+from app.database import db_session
+from app.models.models import User, GameRecord, Leaderboard
+from sqlalchemy import delete
+from datetime import datetime, timezone
+
+protect_bp = Blueprint('protect', __name__)
+
+
+@protect_bp.route('/check_session', methods=['GET'])
+@jwt_required
+async def check_session():
+    current_user = get_jwt_identity()
+    claims = get_jwt_claims()
+    token_session_id = claims.get('session_id')
+    user = User.query.filter_by(username=current_user).first()
+    if not user:
+        return jsonify({"message": "用户未找到"}), 404
+    if user.session_id != token_session_id:
+        return jsonify({"message": "会话过期或无效", "valid": False}), 401
+    return jsonify({"message": "会话有效", "valid": True}), 200
+
+
+@protect_bp.route('/logout', methods=['POST'])
+@jwt_required
+async def logout():
+    current_user = get_jwt_identity()
+    
+    async with db_session() as session:
+        result = await session.execute(select(User).filter_by(username=current_user))
+        user = result.scalar_one_or_none()
+        
+        if user:
+            user.session_id = None
+            await session.commit()
+    
+    return jsonify({"message": "登录成功"}), 200
+
+
+@protect_bp.route('/protected', methods=['GET'])
+@jwt_required
+async def protected():
+    current_user = get_jwt_identity()
+    
+    with db_session() as session:
+        user = session.execute(select(User).filter_by(username=current_user)).scalar_one_or_none()
+        if not user:
+            return jsonify({"error": "User does not exist"}), 404
+        
+        game_records = session.execute(
+            select(GameRecord).filter_by(user_id=user.id).order_by(GameRecord.timestamp.desc())
+        ).scalars().all()
+        
+        if not game_records:
+            return jsonify({
+                "username": current_user,
+                "game_records": [],
+                "message": "This user has no game records yet"
+            }), 200
+        
+        # Build response data
+        records = []
+        for record in game_records:
+            records.append({
+                "level": record.level_id,
+                "completion_time": record.completion_time,
+                "score": record.score,
+                "timestamp": record.timestamp.isoformat()
+            })
+        
+        return jsonify({
+            "username": current_user,
+            "game_records": records
+        }), 200
+
+
+@protect_bp.route('/level_record', methods=['POST'])
+@jwt_required
+async def get_level_record():
+    current_user = get_jwt_identity()
+    data = await request.json
+    level_id = data.get('level_id')
+    
+    if not level_id:
+        return jsonify({"error": "Missing level ID"}), 400
+    
+    with db_session() as session:
+        # Get user
+        user = session.execute(select(User).filter_by(username=current_user)).scalar_one_or_none()
+        
+        if not user:
+            return jsonify({"error": "User does not exist"}), 404
+        
+        # Get game records for the specified level
+        game_records = session.execute(
+            select(GameRecord).filter_by(user_id=user.id, level_id=level_id).order_by(GameRecord.timestamp.desc())
+        ).scalars().all()
+        
+        # Handle case with no game records
+        if not game_records:
+            return jsonify({
+                "username": current_user,
+                "level": level_id,
+                "game_records": [],
+                "message": f"This user has no game records for level {level_id} yet"
+            }), 200
+        
+        # Build response data
+        records = []
+        for record in game_records:
+            records.append({
+                "completion_time": record.completion_time,
+                "score": record.score,
+                "timestamp": record.timestamp.isoformat()
+            })
+        
+        return jsonify({
+            "username": current_user,
+            "level": level_id,
+            "game_records": records
+        }), 200
+        
+        
+@protect_bp.route('/add_record', methods=['POST'])
+@jwt_required
+async def add_game_record():
+    current_user = get_jwt_identity()
+    data = await request.json
+
+    level_id = data.get('level_id')
+    completion_time = data.get('completion_time')
+    score = data.get('score')
+    difficulty = data.get('difficulty') 
+
+    if not all([level_id, completion_time, score, difficulty]):
+        return jsonify({"错误": "缺少必要的信息"}), 400
+
+    if not isinstance(difficulty, int) or difficulty < 1:
+        return jsonify({"错误": "难度必须是正整数"}), 400
+
+    with db_session() as session:
+        user = session.execute(select(User).filter_by(username=current_user)).scalar_one_or_none()
+        
+        if not user:
+            return jsonify({"错误": "用户不存在"}), 404
+
+        # 添加新的游戏记录
+        new_record = GameRecord(
+            user_id=user.id,
+            level_id=level_id,
+            completion_time=completion_time,
+            score=score,
+            difficulty=difficulty,
+            timestamp=datetime.now(timezone.utc)
+        )
+        session.add(new_record)
+
+        # 更新排行榜
+        # 获取当前关卡和难度的前10名
+        top_10 = session.execute(
+            select(Leaderboard)
+            .filter_by(level_id=level_id, difficulty=difficulty)
+            .order_by(Leaderboard.completion_time)
+            .limit(10)
+        ).scalars().all()
+        # 检查新记录是否能进入前10
+        if len(top_10) < 10 or completion_time < top_10[-1].completion_time:
+            # 删除该用户在此关卡和难度的旧排行榜记录（如果存在）
+            delete_stmt = delete(Leaderboard).where(
+                (Leaderboard.user_id == user.id) &
+                (Leaderboard.level_id == level_id) &
+                (Leaderboard.difficulty == difficulty)
+            )
+            session.execute(delete_stmt)
+
+            # 添加新的排行榜记录
+            new_leaderboard_entry = Leaderboard(
+                user_id=user.id,
+                level_id=level_id,
+                completion_time=completion_time,
+                difficulty=difficulty,
+                timestamp=datetime.now(timezone.utc),
+                rank=0
+            )
+            session.add(new_leaderboard_entry)
+            session.commit()
+
+            leaderboard_entries = session.execute(
+                select(Leaderboard)
+                .filter_by(level_id=level_id, difficulty=difficulty)
+                .order_by(Leaderboard.completion_time)
+            ).scalars().all()
+            for rank, entry in enumerate(leaderboard_entries, start=1):
+                entry.rank = rank
+                if rank > 10:
+                    session.delete(entry)
+
+        session.commit()
+
+        return jsonify({
+            "message": "游戏记录添加成功，排行榜已更新",
+            "record": {
+                "username": current_user,
+                "level": level_id,
+                "completion_time": completion_time,
+                "score": score,
+                "difficulty": difficulty,
+                "timestamp": new_record.timestamp.isoformat()
+            }
+        }), 201
+
+
+
+
+--- api\__init__.py ---
+
+
+
+--- models\models.py ---
+
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy.orm import relationship, backref
+from app.database import Base
+from datetime import datetime, timezone
+from werkzeug.security import generate_password_hash, check_password_hash
+
+
+class User(Base):
+    __tablename__ = 'user'
+    id = Column(Integer, primary_key=True)
+    username = Column(String(64), index=True, unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    register_time = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    session_id = Column(String(255), default=None)  # 新添加的字段
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    def __repr__(self):
+        return f'<User {self.username}>'
+
+
+class GameRecord(Base):
+    __tablename__ = 'game_record'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
+    level_id = Column(Integer, nullable=False)
+    completion_time = Column(Float, nullable=False)  
+    score = Column(Integer, nullable=False)
+    difficulty = Column(Integer, nullable=False)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship('User', backref=backref('game_records', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<GameRecord {self.id} User {self.user_id} Level {self.level_id} Difficulty {self.difficulty}>'
+
+
+class Leaderboard(Base):
+    __tablename__ = 'leaderboard'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
+    level_id = Column(Integer, nullable=False)
+    completion_time = Column(Float, nullable=False)
+    rank = Column(Integer, nullable=False)
+    difficulty = Column(Integer, nullable=False)  # 改为整数
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship('User', backref=backref('leaderboard_entries', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<Leaderboard Entry {self.id} User {self.user_id} Level {self.level_id} Rank {self.rank} Difficulty {self.difficulty}>'
+
+
+--- models\__init__.py ---
+
+
+
+--- utils\gene.py ---
+
+import numpy as np
+import random
+from collections import deque
+
+
+def generate_adaptive_number_wall(rows, cols):
+    grid = np.ones((rows, cols), dtype=int)  # 1 表示岛屿，0 表示墙
+
+    def is_valid_coord(x, y):
+        return 0 <= x < rows and 0 <= y < cols
+
+    def get_neighbors(x, y):
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        return [
+            (x + dx, y + dy) for dx, dy in directions if is_valid_coord(x + dx, y + dy)
+        ]
+
+    def is_invalid_island(x, y):
+        neighbors = get_neighbors(x, y)
+        wall_count = sum(1 for nx, ny in neighbors if grid[nx, ny] == 0)
+        is_on_edge = x == 0 or x == rows - 1 or y == 0 or y == cols - 1
+        if is_on_edge:
+            return random.random() < 0.7
+        else:
+            return wall_count != 2
+
+    def is_valid_wall(x, y):
+        neighbors = get_neighbors(x, y)
+        wall_count = sum(1 for nx, ny in neighbors if grid[nx, ny] == 0)
+        return wall_count <= 1
+
+    def should_convert_to_wall(x, y):
+        if grid[x, y] == 0:
+            return False
+        return is_invalid_island(x, y) and is_valid_wall(x, y)
+
+    def plan_route(x, y):
+        if not is_valid_coord(x, y) or grid[x, y] == 0:
+            return
+
+        if should_convert_to_wall(x, y):
+            grid[x, y] = 0  # 将岛屿变成墙
+
+            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+            random.shuffle(directions)
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                plan_route(nx, ny)
+
+    def has_2x2_island(x, y):
+        # 检查以 (x,y) 为左上角的 2x2 区域
+        if is_valid_coord(x+1, y+1):
+            if grid[x, y] == 1 and grid[x+1, y] == 1 and grid[x, y+1] == 1 and grid[x+1, y+1] == 1:
+                return True
+        
+        # 检查以 (x,y) 为右上角的 2x2 区域
+        if is_valid_coord(x+1, y-1):
+            if grid[x, y] == 1 and grid[x+1, y] == 1 and grid[x, y-1] == 1 and grid[x+1, y-1] == 1:
+                return True
+        
+        # 检查以 (x,y) 为左下角的 2x2 区域
+        if is_valid_coord(x-1, y+1):
+            if grid[x, y] == 1 and grid[x-1, y] == 1 and grid[x, y+1] == 1 and grid[x-1, y+1] == 1:
+                return True
+        
+        # 检查以 (x,y) 为右下角的 2x2 区域
+        if is_valid_coord(x-1, y-1):
+            if grid[x, y] == 1 and grid[x-1, y] == 1 and grid[x, y-1] == 1 and grid[x-1, y-1] == 1:
+                return True
+        
+        return False
+    
+    def has_adjacent_wall(x, y):
+        neighbors = get_neighbors(x, y)
+        return any(grid[nx, ny] == 0 for nx, ny in neighbors)
+
+    def final_cleanup():
+        to_check = deque()
+        for i in range(rows):
+            for j in range(cols):
+                if grid[i, j] == 1 and has_2x2_island(i, j):
+                    to_check.append((i, j))
+
+        while to_check:
+            x, y = to_check.popleft()
+            if grid[x, y] == 1 and has_2x2_island(x, y) and has_adjacent_wall(x, y):
+                grid[x, y] = 0  # 将岛屿变成墙
+            elif grid[x, y] == 1 and has_2x2_island(x, y):
+                to_check.append((x, y))  # 重新加入队列，等待后续检查
+
+    # 随机选择一个边界点作为起点
+    edge_points = (
+        [(0, j) for j in range(cols)]
+        + [(rows - 1, j) for j in range(cols)]
+        + [(i, 0) for i in range(1, rows - 1)]
+        + [(i, cols - 1) for i in range(1, rows - 1)]
+    )
+    start_point = random.choice(edge_points)
+    grid[start_point] = 0  # 将起点设为墙
+
+    x, y = start_point
+    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    random.shuffle(directions)
+    for dx, dy in directions:
+        nx, ny = x + dx, y + dy
+        plan_route(nx, ny)
+
+    # 最后的清理步骤
+    final_cleanup()
+    return grid
+
+
+def gene_map(size=(20, 20)):
+    def visualize_connected_ones(matrix):
+        
+        m, n = len(matrix), len(matrix[0])
+        visited = [[False for _ in range(n)] for _ in range(m)]
+        result = [[0 for _ in range(n)] for _ in range(m)]
+        
+        def dfs(i, j):
+            if i < 0 or i >= m or j < 0 or j >= n or matrix[i][j] == 0 or visited[i][j]:
+                return 0
+            
+            visited[i][j] = True
+            count = 1
+            
+            # 检查4个方向：上、下、左、右
+            directions = [(-1,0), (1,0), (0,-1), (0,1)]
+            for di, dj in directions:
+                count += dfs(i + di, j + dj)
+            
+            return count
+        
+        for i in range(m):
+            for j in range(n):
+                if matrix[i][j] == 1 and not visited[i][j]:
+                    size = dfs(i, j)
+                    # 填充连通域的大小
+                    for x in range(m):
+                        for y in range(n):
+                            if visited[x][y] and result[x][y] == 0:
+                                result[x][y] = size
+        
+        return result
+    grid = generate_adaptive_number_wall(*size)
+    return grid, visualize_connected_ones(grid)
+
+
+if __name__ == "__main__":
+    result = gene_map((32, 32))
+    print("生成结果图：")
+    print(result[0])
+    print("生成的路径图：")
+    print(result[1])
+
+
+--- utils\utils.py ---
+
+import numpy as np
+from scipy import ndimage
+import copy
+
+
+def process_matrix(matrix, pixel_value, start_num):
+    new_matrix = copy.deepcopy(matrix)
+    result = np.zeros_like(matrix)
+
+    binary_matrix = (matrix == pixel_value).astype(int)
+
+    structure = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
+
+    labeled_array, num_features = ndimage.label(binary_matrix, structure=structure)
+
+    sizes = ndimage.sum(binary_matrix, labeled_array, range(1, num_features + 1))
+
+    conv = ndimage.convolve(binary_matrix, structure, mode="constant", cval=0)
+    endpoints = (conv <= 2) & binary_matrix
+
+    num = start_num
+    for i in range(1, num_features + 1):
+        component = labeled_array == i
+        component_endpoints = np.logical_and(component, endpoints)
+        if np.any(component_endpoints):
+            result[component_endpoints] = sizes[i - 1]
+            new_matrix[component] = num
+        else:
+            new_matrix[component] = num
+            boundary_points = np.argwhere(component)
+            if len(boundary_points) > 1:
+                for iii in range(len(boundary_points) - 1):
+                    if np.abs(boundary_points[iii] - boundary_points[iii + 2]).sum() == 2:
+                        result[boundary_points[iii][0], boundary_points[iii][1]] = sizes[i - 1]
+                        result[boundary_points[iii + 2][0], boundary_points[iii + 2][1]] = sizes[i - 1]
+                        break
+        num -= 1
+
+    return result, new_matrix, num
+
+
+if __name__ == "__main__":
+    matrix = np.array(
+        [
+            [255, 255, 255, -1, 255, -1, 0, -1, 255],
+            [255, -300, 255, -300, -1, -300, -1, -300, -1],
+            [255, 255,  255,   0, 0, -1, 255, -1, 0],
+            [-1, -300, -1, -300, -1, -300, -1, -300, -1],
+            [0, 0, 0, 0, 0, -1, 255, -1, 255],
+            [-1, -300, -1, -300, -1, -300, -1, -300, -1],
+            [255, -1, 255, 255, 255, -1, 0, -1, 255],
+        ]
+    )
+
+    matrix[matrix == 0] = 1
+    pixel_value = 255
+    for row in matrix:
+        print("\t".join(map(str, row)))
+    import time
+
+    a = time.time()
+    result, new_matrix, _ = process_matrix(matrix, pixel_value, -2)
+    print(time.time() - a)
+    print(result[::2, ::2])
+    # print(matrix[::2, ::2])
+    print(new_matrix[::2, ::2])
+
+
+--- utils\__init__.py ---
+

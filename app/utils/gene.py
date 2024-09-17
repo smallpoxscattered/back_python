@@ -157,13 +157,13 @@ def gene_map(size=(20, 20)):
         
         return matrix
     grid = generate_adaptive_number_wall(*size)
-    while(np.sum(grid != 0) < 3):
+    while(np.sum(grid != 0) < 3 or np.max(visualize_connected_ones(grid)) > size[0]):
         grid = generate_adaptive_number_wall(*size)
     return grid, process_mat(process_matrix(visualize_connected_ones(grid)))
 
 
 if __name__ == "__main__":
-    result = gene_map((5, 5))
+    result = gene_map((20, 20))
     print("生成结果图：")
     print(result[0])
     print("生成的路径图：")

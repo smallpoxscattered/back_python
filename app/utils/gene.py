@@ -47,47 +47,6 @@ def generate_adaptive_number_wall(rows, cols):
                 nx, ny = x + dx, y + dy
                 plan_route(nx, ny)
 
-    def has_2x2_island(x, y):
-        # 检查以 (x,y) 为左上角的 2x2 区域
-        if is_valid_coord(x+1, y+1):
-            if grid[x, y] == 1 and grid[x+1, y] == 1 and grid[x, y+1] == 1 and grid[x+1, y+1] == 1:
-                return True
-        
-        # 检查以 (x,y) 为右上角的 2x2 区域
-        if is_valid_coord(x+1, y-1):
-            if grid[x, y] == 1 and grid[x+1, y] == 1 and grid[x, y-1] == 1 and grid[x+1, y-1] == 1:
-                return True
-        
-        # 检查以 (x,y) 为左下角的 2x2 区域
-        if is_valid_coord(x-1, y+1):
-            if grid[x, y] == 1 and grid[x-1, y] == 1 and grid[x, y+1] == 1 and grid[x-1, y+1] == 1:
-                return True
-        
-        # 检查以 (x,y) 为右下角的 2x2 区域
-        if is_valid_coord(x-1, y-1):
-            if grid[x, y] == 1 and grid[x-1, y] == 1 and grid[x, y-1] == 1 and grid[x-1, y-1] == 1:
-                return True
-        
-        return False
-    
-    def has_adjacent_wall(x, y):
-        neighbors = get_neighbors(x, y)
-        return any(grid[nx, ny] == 0 for nx, ny in neighbors)
-
-    def final_cleanup():
-        to_check = deque()
-        for i in range(rows):
-            for j in range(cols):
-                if grid[i, j] == 1 and has_2x2_island(i, j):
-                    to_check.append((i, j))
-
-        while to_check:
-            x, y = to_check.popleft()
-            if grid[x, y] == 1 and has_2x2_island(x, y) and has_adjacent_wall(x, y):
-                grid[x, y] = 0  # 将岛屿变成墙
-            elif grid[x, y] == 1 and has_2x2_island(x, y):
-                to_check.append((x, y))  # 重新加入队列，等待后续检查
-
     # 随机选择一个边界点作为起点
     edge_points = (
         [(0, j) for j in range(cols)]
@@ -104,13 +63,22 @@ def generate_adaptive_number_wall(rows, cols):
     for dx, dy in directions:
         nx, ny = x + dx, y + dy
         plan_route(nx, ny)
-
-    # 最后的清理步骤
-    final_cleanup()
+    
     return grid
 
 
 def gene_map(size=(20, 20)):
+    def is_valid_coord(x, y):
+        return 0 <= x < size[0] and 0 <= y < size[1]
+    def get_neighbors(x, y):
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        return [
+            (x + dx, y + dy) for dx, dy in directions if is_valid_coord(x + dx, y + dy)
+        ]
+    def has_point(x, y):
+        neighbors = get_neighbors(x, y)
+        return np.sum([grid[nx, ny] != 0 for nx, ny in neighbors]) == 1
+
     def visualize_connected_ones(matrix):
         
         m, n = len(matrix), len(matrix[0])
@@ -160,17 +128,42 @@ def gene_map(size=(20, 20)):
 
         for i in range(rows):
             for j in range(cols):
+                if not visited[i][j] and matrix[i][j] != 0 and has_point(i, j):
+                    start = (i, j)
+                    dfs(i, j, matrix[i][j])
+        
+        return matrix
+    def process_mat(matrix):
+        rows, cols = len(matrix), len(matrix[0])
+        visited = [[False for _ in range(cols)] for _ in range(rows)]
+
+        def dfs(i, j, num):
+            if (i < 0 or i >= rows or j < 0 or j >= cols or
+                visited[i][j] or matrix[i][j] != num):
+                return
+            
+            visited[i][j] = True
+            if (i, j) != start:
+                matrix[i][j] = 0
+            
+            for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                dfs(i + di, j + dj, num)
+
+        for i in range(rows):
+            for j in range(cols):
                 if not visited[i][j] and matrix[i][j] != 0:
                     start = (i, j)
                     dfs(i, j, matrix[i][j])
         
         return matrix
     grid = generate_adaptive_number_wall(*size)
-    return grid, process_matrix(visualize_connected_ones(grid))
+    while(np.sum(grid != 0) < 3):
+        grid = generate_adaptive_number_wall(*size)
+    return grid, process_mat(process_matrix(visualize_connected_ones(grid)))
 
 
 if __name__ == "__main__":
-    result = gene_map((32, 32))
+    result = gene_map((5, 5))
     print("生成结果图：")
     print(result[0])
     print("生成的路径图：")
